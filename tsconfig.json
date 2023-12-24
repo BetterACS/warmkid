@@ -17,7 +17,8 @@
 		"allowJs": true,
 		"types": [
 			"bun-types" // add Bun global
-		],
-		"rootDir": "./src"
-	}
+		]
+	},
+	"include": ["./src/**/*"],
+	"exclude": ["node_modules", "dist"]
 }

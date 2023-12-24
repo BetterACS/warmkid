@@ -1,39 +1,61 @@
-import { Client, GatewayIntentBits, REST, Routes } from 'discord.js';
-import dotenv from 'dotenv';
+import { Client, Events, GatewayIntentBits, REST, Routes } from 'discord.js';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { CommandHandlers } from './utils/commandsHandler';
+import { commandData, fetchedCommands } from './utils/interface';
+const config = await Bun.file('src/config.json').json();
+//#region Command Imports
+const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-const commands = [
-	{
-		name: 'ping',
-		description: 'Replies with Pong!',
-	},
-];
+const commands: fetchedCommands[] = [];
+const foldersPath = path.join(import.meta.dir, 'commands');
+const commandFolders = fs.readdirSync(foldersPath);
 
-dotenv.config();
+for (const folder of commandFolders) {
+	const commandsPath = path.join(foldersPath, folder);
+	const commandFiles = fs.readdirSync(commandsPath).filter((file) => file.endsWith('.ts'));
 
-const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_BOT_TOKEN as string);
+	for (const file of commandFiles) {
+		const filePath = path.join(commandsPath, file);
+		const command: {
+			data: commandData;
+			execute?: Function;
+			interaction?: Function;
+		} = await import(filePath);
+
+		if ('data' in command && 'execute' in command) {
+			commands.push({
+				name: command.data.name,
+				type: command.data.type,
+				data: command.data.data,
+				execute: command.execute,
+				interaction: command.interaction,
+			});
+		} else {
+			console.log(`[WARNING] The command at ${filePath} is missing a required "data" or "execute" property.`);
+		}
+	}
+}
+
+const rest = new REST({ version: '10' }).setToken(config.token);
 
 try {
 	console.log('Started refreshing application (/) commands.');
 
-	await rest.put(Routes.applicationCommands(process.env.APPLICATION_ID as string), { body: commands });
+	await rest.put(Routes.applicationGuildCommands(config.clientId, config.guildId), {
+		body: commands.map((command: fetchedCommands) => command.data.toJSON()),
+	});
 
 	console.log('Successfully reloaded application (/) commands.');
 } catch (error) {
 	console.error(error);
 }
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const commandHandler = new CommandHandlers(commands);
 
-client.on('ready', () => {
-	console.log(`Logged in as warmkid!`);
+client.on(Events.InteractionCreate, async (interaction) => {
+	commandHandler.execute(interaction);
 });
+//#endregion
 
-client.on('interactionCreate', async (interaction) => {
-	if (!interaction.isChatInputCommand()) return;
-
-	if (interaction.commandName === 'ping') {
-		await interaction.reply('Pong!');
-	}
-});
-
-client.login(process.env.DISCORD_BOT_TOKEN as string);
+client.login(config.token);
